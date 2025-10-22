@@ -2524,8 +2524,7 @@ def main():
                 if registrar_informacao_automatico(driver):
                     log_ok("\nProcesso concluído com sucesso!")
                 else:
-                    log_warn("\nProcesso foi concluido, porém retornou algum erro.")
-                
+                    log_warn("\nProcesso foi concluído, porém retornou algum erro.")
                 
                 continuar = input("\nDeseja registrar outro caso? (s/n): ").strip().lower()
                 if continuar != 's':
@@ -2540,27 +2539,37 @@ def main():
                         log_ok("Pronto para criar novo caso!")
                     time.sleep(0.5)
             elif escolha == "Registrar Conta Bemol":
-                print("\n" + "="*70)
-                print("   INICIANDO REGISTRO DE CONTA BEMOL")
-                print("="*70 + "\n")
-                
-                if registrar_conta_bemol_automatico(driver):
-                    log_ok("\nProcesso concluído com sucesso!")
-                else:
-                    log_warn("\nProcesso concluído com avisos.")
-                
-                continuar = input("\nDeseja registrar outro caso? (s/n): ").strip().lower()
-                if continuar != 's':
-                    break
-                else:
-                    # Antes de criar outro caso, voltar para a página do cliente
-                    log_info("\nPreparando para criar novo caso...")
-                    if not voltar_para_cliente(driver):
-                        log_warn("Não conseguiu voltar automaticamente. Navegue manualmente para a aba do cliente.")
-                        input("Pressione Enter quando estiver na aba do cliente...")
+                escolha_conta = questionary.select(
+                    "Escolha uma opção abaixo: ",
+                    choices=[
+                        {"name": "Atualização de número de telefone", "value": "atualizacao_telefone"},
+                        {"name": "Voltar", "value": "voltar"},
+                    ]
+                ).ask()
+                if escolha_conta == "atualizacao_telefone":
+                    print("\n" + "="*70)
+                    print("   INICIANDO REGISTRO DE CONTA BEMOL")
+                    print("="*70 + "\n")
+                    
+                    if registrar_conta_bemol_automatico(driver):
+                        log_ok("\nProcesso de Conta Bemol concluído com sucesso!")
                     else:
-                        log_ok("Pronto para criar novo caso!")
-                    time.sleep(0.5)
+                        log_warn("\nProcesso de Conta Bemol foi concluído, porém retornou algum erro.")
+                    
+                    continuar = input("\nDeseja registrar outra Conta Bemol? (s/n): ").strip().lower()
+                    if continuar != 's':
+                        continue
+                    else:
+                        # Antes de criar outro caso, voltar para a página do cliente
+                        log_info("\nPreparando para criar nova Conta Bemol...")
+                        if not voltar_para_cliente(driver):
+                            log_warn("Não conseguiu voltar automaticamente. Navegue manualmente para a aba do cliente.")
+                            input("Pressione Enter quando estiver na aba do cliente...")
+                        else:
+                            log_ok("Pronto para criar nova Conta Bemol!")
+                        time.sleep(0.5)
+                else:
+                    continue
             else:
                 log_info("Encerrando automação...")
                 break
