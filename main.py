@@ -199,38 +199,122 @@ def criar_driver(initial_url="https://login.salesforce.com/"):
         raise
 
 def esperar_mfa(driver, timeout=TIMEOUT_MFA):
-    log_warn("Aguardando aprovação MFA...")
+    """
+    Aguarda a aprovação do MFA automaticamente, verificando continuamente
+    se o usuário já passou pela autenticação. NÃO precisa apertar Enter!
+    """
+    log_warn("⚠️  VERIFICAÇÃO MFA DETECTADA!")
+    print("\n" + "="*70)
+    print("   ATENÇÃO: Complete a autenticação MFA no navegador")
+    print("   O script continuará AUTOMATICAMENTE após aprovação")
+    print("="*70 + "\n")
+    
     wait_start = time.time()
     last_check = 0
+    check_interval = 2  # Verifica a cada 2 segundos
+    
+    # JavaScript para verificar se ainda está na página de MFA
+    js_verificar_mfa = """
+    const url = window.location.href.toLowerCase();
+    const pageText = document.body.innerText.toLowerCase();
+    const pageHTML = document.body.innerHTML.toLowerCase();
+    
+    // Indicadores de que AINDA está no MFA
+    const mfaIndicators = [
+        url.includes('verification'),
+        url.includes('mfa'),
+        url.includes('authenticate'),
+        url.includes('verify'),
+        pageText.includes('verificação'),
+        pageText.includes('verification'),
+        pageText.includes('autenticação'),
+        pageText.includes('authentication'),
+        pageText.includes('approve'),
+        pageText.includes('aprovar'),
+        pageText.includes('código'),
+        pageText.includes('code'),
+        pageHTML.includes('mfa'),
+        pageHTML.includes('verification')
+    ];
+    
+    const stillInMFA = mfaIndicators.some(indicator => indicator === true);
+    
+    // Indicadores de que JÁ passou do MFA (está logado)
+    const loggedInIndicators = [
+        url.includes('/lightning/'),
+        url.includes('/home'),
+        url.includes('/setup'),
+        document.querySelector('header.slds-global-header') !== null,
+        document.querySelector('[class*="oneHeader"]') !== null,
+        document.querySelector('[data-aura-class*="oneHeader"]') !== null
+    ];
+    
+    const isLoggedIn = loggedInIndicators.some(indicator => indicator === true);
+    
+    return {
+        stillInMFA: stillInMFA,
+        isLoggedIn: isLoggedIn,
+        url: url,
+        hasLightning: url.includes('lightning')
+    };
+    """
     
     while time.time() - wait_start < timeout:
         try:
             current_time = time.time() - wait_start
             
-            # Log a cada 5 segundos para mostrar progresso
-            if int(current_time) - last_check >= 5:
+            # Log de progresso a cada intervalo
+            if int(current_time) - last_check >= check_interval:
                 last_check = int(current_time)
-                log_debug(f"Aguardando MFA... ({int(current_time)}s)")
+                elapsed_minutes = int(current_time // 60)
+                elapsed_seconds = int(current_time % 60)
+                log_debug(f"Aguardando MFA... ({elapsed_minutes}m {elapsed_seconds}s)")
             
-            url = driver.current_url
+            # Executar verificação JavaScript
+            resultado = executar_js_safe(driver, js_verificar_mfa)
             
-            if "lightning" in url and "identity/verification" not in url:
-                log_ok("MFA aprovado!")
-                time.sleep(0.5)
-                return True
-            
-            header = driver.find_elements(By.XPATH, "//header[contains(@class,'slds-global-header')]")
-            if header:
-                log_ok("Lightning carregado!")
-                time.sleep(0.5)
-                return True
+            if resultado:
+                # Se já está logado (passou do MFA)
+                if resultado.get('isLoggedIn'):
+                    log_ok("✓ MFA aprovado! Login concluído.")
+                    time.sleep(1)  # Aguarda um pouco para garantir carregamento
+                    return True
                 
-        except Exception:
-            pass
-        
-        time.sleep(1)
+                # Se claramente NÃO está mais no MFA
+                if not resultado.get('stillInMFA') and resultado.get('hasLightning'):
+                    log_ok("✓ MFA concluído! Redirecionado com sucesso.")
+                    time.sleep(1)
+                    return True
+            
+            # Verificação adicional pela URL (fallback)
+            try:
+                url_atual = driver.current_url.lower()
+                
+                # Se já está no Lightning e não tem indicadores de MFA
+                if 'lightning' in url_atual and 'verification' not in url_atual and 'mfa' not in url_atual:
+                    # Verificar se há elementos da interface do Salesforce
+                    try:
+                        header = driver.find_elements(By.XPATH, "//header[contains(@class,'slds-global-header')]")
+                        if header:
+                            log_ok("✓ Interface Lightning detectada! MFA concluído.")
+                            time.sleep(0.5)
+                            return True
+                    except:
+                        pass
+            except:
+                pass
+            
+            # Aguardar antes da próxima verificação
+            time.sleep(1)
+            
+        except Exception as e:
+            log_debug(f"Erro na verificação MFA: {str(e)[:100]}")
+            time.sleep(1)
     
-    log_error("Timeout MFA")
+    # Se chegou aqui, deu timeout
+    log_error(f"⏱️  Timeout MFA ({timeout}s)")
+    log_warn("O usuário não completou a autenticação a tempo.")
+    
     return False
 
 def logar(driver, usuario, senha):
@@ -340,14 +424,8 @@ def logar(driver, usuario, senha):
             # Verificar se precisa de MFA
             current_url = driver.current_url
             page_text = driver.page_source.lower()
-            
-            if 'verificação' in page_text or 'verification' in page_text or 'mfa' in page_text or 'autenticação' in page_text:
-                log_warn("⚠️  VERIFICAÇÃO MFA DETECTADA!")
-                print("\n" + "="*70)
-                print("   ATENÇÃO: Complete a autenticação MFA no navegador")
-                print("="*70)
-                input("\nPressione Enter após completar a verificação MFA...")
-                time.sleep(2)
+
+            esperar_mfa(driver, timeout=TIMEOUT_MFA)
             
             # Verificar se login foi bem-sucedido
             current_url = driver.current_url
