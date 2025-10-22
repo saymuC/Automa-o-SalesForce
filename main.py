@@ -2362,74 +2362,6 @@ def registrar_conta_bemol_automatico(driver):
     
     return True
 
-def registrar_informacao_automatico(driver):
-    log_info("Iniciando registro automático...")
-    
-    js_click = """
-    const query = arguments[0];
-    const mode = arguments[1] || 'selector';
-    
-    function findDeep(root, q, isText) {
-        if (!isText) {
-            try {
-                const el = root.querySelector(q);
-                if (el && isVisible(el)) return el;
-            } catch(e){}
-        } else {
-            const tags = ['button', 'a', 'span', 'lightning-button'];
-            for (const tag of tags) {
-                const els = Array.from(root.querySelectorAll(tag));
-                for (const el of els) {
-                    if (isVisible(el)) {
-                        const text = (el.innerText || '').trim();
-                        if (text.toLowerCase().includes(q.toLowerCase())) return el;
-                    }
-                }
-            }
-        }
-        
-        const all = root.querySelectorAll('*');
-        for (const el of all) {
-            try {
-                if (el.shadowRoot) {
-                    const found = findDeep(el.shadowRoot, q, isText);
-                    if (found) return found;
-                }
-            } catch(e){}
-        }
-        return null;
-    }
-    
-    function isVisible(el) {
-        try {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            return rect.width > 0 && rect.height > 0 && 
-                   style.display !== 'none' && style.visibility !== 'hidden';
-        } catch(e) {
-            return false;
-        }
-    }
-    
-    const el = findDeep(document, query, mode === 'text');
-    if (!el) return { success: false };
-    
-    try {
-        el.scrollIntoView({block: 'center'});
-        el.click();
-        return { success: true };
-    } catch(e) {
-        try {
-            ['mousedown', 'click'].forEach(ev => {
-                el.dispatchEvent(new MouseEvent(ev, {bubbles: true}));
-            });
-            return { success: true };
-        } catch(e2) {
-            return { success: false };
-        }
-    }
-    """
-
 def menu_principal():
     if HAS_QUESTIONARY:
         return questionary.select(
@@ -2592,7 +2524,8 @@ def main():
                 if registrar_informacao_automatico(driver):
                     log_ok("\nProcesso concluído com sucesso!")
                 else:
-                    log_warn("\nProcesso concluído com avisos.")
+                    log_warn("\nProcesso foi concluido, porém retornou algum erro.")
+                
                 
                 continuar = input("\nDeseja registrar outro caso? (s/n): ").strip().lower()
                 if continuar != 's':
