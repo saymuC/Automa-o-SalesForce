@@ -2425,18 +2425,163 @@ def menu_principal():
     if HAS_QUESTIONARY:
         return questionary.select(
             "Escolha uma ação:",
-            choices=["Registrar informação", "Registrar Conta Bemol", "Sair"]
+            choices=[
+                "Registrar informação", 
+                "Registrar Conta Bemol", 
+                "Buscar outro CPF",
+                "Sair"
+            ]
         ).ask()
     else:
         print("\n" + "="*30)
         print("      AUTOMAÇÃO SALESFORCE")
         print("="*30)
         print("1) Registrar informação")
-        print("2) Sair")
+        print("2) Registrar Conta Bemol")
+        print("3) Buscar outro CPF")
+        print("4) Sair")
         print("="*30)
-        escolha = input("Escolha (1/2): ").strip()
-        return "Registrar informação" if escolha == "1" else "Sair"
+        escolha = input("Escolha (1/2/3/4): ").strip()
+        if escolha == "1":
+            return "Registrar informação"
+        elif escolha == "2":
+            return "Registrar Conta Bemol"
+        elif escolha == "3":
+            return "Buscar outro CPF"
+        else:
+            return "Sair"
 
+def buscar_novo_cpf(driver):
+    """Função para buscar um novo CPF sem sair do sistema"""
+    max_tentativas_cpf = 5
+    tentativa_cpf = 0
+    cpf_encontrado = False
+    
+    while tentativa_cpf < max_tentativas_cpf and not cpf_encontrado:
+        tentativa_cpf += 1
+        
+        print("\n" + "="*40)
+        print(f"   BUSCA DE CLIENTE (Tentativa {tentativa_cpf}/{max_tentativas_cpf})")
+        print("="*40 + "\n")
+        
+        cpf_raw = input("Digite o CPF (ou 'voltar' para cancelar): ").strip()
+        
+        # Permitir cancelar a busca
+        if cpf_raw.lower() == 'voltar':
+            log_info("Busca cancelada pelo usuário")
+            return False
+        
+        cpf = limpar_cpf(cpf_raw)
+        
+        if not validar_cpf(cpf):
+            log_error("CPF inválido localmente (formato incorreto)")
+            
+            tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+            if tentar_novamente != 's':
+                log_info("Operação cancelada pelo usuário")
+                return False
+            continue
+        
+        log_ok(f"CPF validado: {cpf[:3]}.***.***-{cpf[-2:]}")
+        
+        log_info("\nBUSCA DE CLIENTE")
+        
+        # Primeiro, tentar navegar para a página inicial
+        log_info("Navegando para a página inicial...")
+        try:
+            current_url = driver.current_url
+            base_url = current_url.split('/lightning/')[0] if '/lightning/' in current_url else current_url.split('.com')[0] + '.com'
+            driver.get(base_url + '/lightning/page/home')
+            time.sleep(2)
+        except Exception as e:
+            log_warn(f"Não conseguiu navegar para início: {str(e)[:60]}")
+        
+        if not verificar_pagina_inicial(driver):
+            log_warn("Não está na página Início. Continuando mesmo assim...")
+        
+        resultado_busca = buscar_cpf_automatico(driver, cpf, max_tentativas=3)
+        
+        if resultado_busca == 'invalid':
+            log_error("\n❌ CPF INVÁLIDO no Salesforce!")
+            log_info("O Salesforce rejeitou este CPF como inválido.")
+            
+            tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+            if tentar_novamente != 's':
+                log_info("Operação cancelada pelo usuário")
+                return False
+            continue
+            
+        elif resultado_busca == 'not_found':
+            log_warn("\n⚠️ CLIENTE NÃO ENCONTRADO no Salesforce!")
+            log_info("Este CPF não está cadastrado no sistema.")
+            
+            tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+            if tentar_novamente != 's':
+                log_info("Operação cancelada pelo usuário")
+                return False
+            continue
+            
+        elif resultado_busca == True:
+            log_ok("\n✓ Cliente encontrado com sucesso!")
+            cpf_encontrado = True
+            return True
+            
+        else:
+            log_error("Falha na busca automática")
+            
+            retry = input("\nTentar buscar este CPF novamente? (s/n): ").strip().lower()
+            if retry == 's':
+                resultado_retry = buscar_cpf_automatico(driver, cpf, max_tentativas=2)
+                
+                if resultado_retry == True:
+                    log_ok("Busca bem-sucedida!")
+                    cpf_encontrado = True
+                    return True
+                elif resultado_retry == 'invalid':
+                    log_error("\n❌ CPF INVÁLIDO no Salesforce!")
+                    tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+                    if tentar_novamente != 's':
+                        return False
+                    continue
+                elif resultado_retry == 'not_found':
+                    log_warn("\n⚠️ CLIENTE NÃO ENCONTRADO!")
+                    tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+                    if tentar_novamente != 's':
+                        return False
+                    continue
+                else:
+                    log_warn("Ainda não conseguiu.")
+                    continuar = input("\nBuscar manualmente? (s/n): ").strip().lower()
+                    if continuar == 's':
+                        input("Busque manualmente e pressione Enter quando estiver na página do cliente...")
+                        cpf_encontrado = True
+                        return True
+                    else:
+                        tentar_outro = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+                        if tentar_outro != 's':
+                            log_info("Operação cancelada")
+                            return False
+                        continue
+            else:
+                continuar = input("\nBuscar manualmente? (s/n): ").strip().lower()
+                if continuar == 's':
+                    input("Busque manualmente e pressione Enter quando estiver na página do cliente...")
+                    cpf_encontrado = True
+                    return True
+                else:
+                    tentar_outro = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
+                    if tentar_outro != 's':
+                        log_info("Operação cancelada")
+                        return False
+                    continue
+    
+    if not cpf_encontrado:
+        log_error(f"\nNúmero máximo de tentativas ({max_tentativas_cpf}) atingido.")
+        return False
+    
+    return cpf_encontrado
+
+# Parte modificada da função main():
 def main():
     print("\n" + "="*40)
     print("   AUTOMAÇÃO SALESFORCE")
@@ -2461,117 +2606,13 @@ def main():
             return
         log_ok(f"Login realizado com sucesso")
         
-        max_tentativas_cpf = 5
-        tentativa_cpf = 0
-        cpf_encontrado = False
-        
-        while tentativa_cpf < max_tentativas_cpf and not cpf_encontrado:
-            tentativa_cpf += 1
-            
-            print("\n" + "="*40)
-            print(f"   BUSCA DE CLIENTE (Tentativa {tentativa_cpf}/{max_tentativas_cpf})")
-            print("="*40 + "\n")
-            
-            cpf_raw = input("Digite o CPF: ").strip()
-            cpf = limpar_cpf(cpf_raw)
-            
-            if not validar_cpf(cpf):
-                log_error("CPF inválido localmente (formato incorreto)")
-                
-                tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                if tentar_novamente != 's':
-                    log_info("Operação cancelada pelo usuário")
-                    return
-                continue
-            
-            log_ok(f"CPF validado: {cpf[:3]}.***.***-{cpf[-2:]}")
-            
-            log_info("\nBUSCA DE CLIENTE")
-            
-            if not verificar_pagina_inicial(driver):
-                log_warn("Não está na página Início. Continuando mesmo assim...")
-            
-            resultado_busca = buscar_cpf_automatico(driver, cpf, max_tentativas=3)
-            
-            if resultado_busca == 'invalid':
-                log_error("\n❌ CPF INVÁLIDO no Salesforce!")
-                log_info("O Salesforce rejeitou este CPF como inválido.")
-                
-                tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                if tentar_novamente != 's':
-                    log_info("Operação cancelada pelo usuário")
-                    return
-                continue
-                
-            elif resultado_busca == 'not_found':
-                log_warn("\n⚠️ CLIENTE NÃO ENCONTRADO no Salesforce!")
-                log_info("Este CPF não está cadastrado no sistema.")
-                
-                tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                if tentar_novamente != 's':
-                    log_info("Operação cancelada pelo usuário")
-                    return
-                continue
-                
-            elif resultado_busca == True:
-                log_ok("\n✓ Cliente encontrado com sucesso!")
-                cpf_encontrado = True
-                break
-                
-            else:
-                log_error("Falha na busca automática")
-                
-                retry = input("\nTentar buscar este CPF novamente? (s/n): ").strip().lower()
-                if retry == 's':
-                    resultado_retry = buscar_cpf_automatico(driver, cpf, max_tentativas=2)
-                    
-                    if resultado_retry == True:
-                        log_ok("Busca bem-sucedida!")
-                        cpf_encontrado = True
-                        break
-                    elif resultado_retry == 'invalid':
-                        log_error("\n❌ CPF INVÁLIDO no Salesforce!")
-                        tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                        if tentar_novamente != 's':
-                            return
-                        continue
-                    elif resultado_retry == 'not_found':
-                        log_warn("\n⚠️ CLIENTE NÃO ENCONTRADO!")
-                        tentar_novamente = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                        if tentar_novamente != 's':
-                            return
-                        continue
-                    else:
-                        log_warn("Ainda não conseguiu.")
-                        continuar = input("\nBuscar manualmente? (s/n): ").strip().lower()
-                        if continuar == 's':
-                            input("Busque manualmente e pressione Enter quando estiver na página do cliente...")
-                            cpf_encontrado = True
-                            break
-                        else:
-                            tentar_outro = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                            if tentar_outro != 's':
-                                log_info("Operação cancelada")
-                                return
-                            continue
-                else:
-                    continuar = input("\nBuscar manualmente? (s/n): ").strip().lower()
-                    if continuar == 's':
-                        input("Busque manualmente e pressione Enter quando estiver na página do cliente...")
-                        cpf_encontrado = True
-                        break
-                    else:
-                        tentar_outro = input("\nDeseja tentar outro CPF? (s/n): ").strip().lower()
-                        if tentar_outro != 's':
-                            log_info("Operação cancelada")
-                            return
-                        continue
-        
-        if not cpf_encontrado:
-            log_error(f"\nNúmero máximo de tentativas ({max_tentativas_cpf}) atingido.")
-            log_info("Encerrando automação...")
+        # Busca inicial do CPF
+        log_info("\n>>> BUSCA INICIAL DE CLIENTE <<<")
+        if not buscar_novo_cpf(driver):
+            log_info("Nenhum cliente carregado. Encerrando...")
             return
         
+        # Loop principal do menu
         while True:
             escolha = menu_principal()
             
@@ -2587,7 +2628,7 @@ def main():
                 
                 continuar = input("\nDeseja registrar outro caso? (s/n): ").strip().lower()
                 if continuar != 's':
-                    break
+                    continue
                 else:
                     # Antes de criar outro caso, voltar para a página do cliente
                     log_info("\nPreparando para criar novo caso...")
@@ -2597,6 +2638,7 @@ def main():
                     else:
                         log_ok("Pronto para criar novo caso!")
                     time.sleep(0.5)
+                    
             elif escolha == "Registrar Conta Bemol":
                 escolha_conta = questionary.select(
                     "Escolha uma opção abaixo: ",
@@ -2605,6 +2647,7 @@ def main():
                         {"name": "Voltar", "value": "voltar"},
                     ]
                 ).ask()
+                
                 if escolha_conta == "atualizacao_telefone":
                     print("\n" + "="*70)
                     print("   INICIANDO REGISTRO DE CONTA BEMOL")
@@ -2629,7 +2672,20 @@ def main():
                         time.sleep(0.5)
                 else:
                     continue
-            else:
+                    
+            elif escolha == "Buscar outro CPF":
+                print("\n" + "="*70)
+                print("   BUSCAR NOVO CLIENTE")
+                print("="*70 + "\n")
+                
+                if buscar_novo_cpf(driver):
+                    log_ok("\n✓ Novo cliente carregado com sucesso!")
+                    log_info("Retornando ao menu principal...")
+                else:
+                    log_warn("\nBusca cancelada ou sem sucesso.")
+                    log_info("Retornando ao menu principal...")
+                
+            else:  # Sair
                 log_info("Encerrando automação...")
                 break
         
