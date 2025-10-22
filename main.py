@@ -1348,54 +1348,72 @@ def voltar_para_cliente(driver):
     
     log_info("Retornando para a página do cliente...")
     
-    # Primeiro tenta usar a URL armazenada (método mais confiável)
+    # PRIMEIRO: Verificar se JÁ está na página do cliente
+    try:
+        url_atual = driver.current_url
+        log_debug(f"URL atual: {url_atual[:70]}")
+        
+        if '/lightning/r/Account/' in url_atual or '/lightning/r/Contact/' in url_atual:
+            log_ok("✓ Já está na página do cliente!")
+            
+            # Atualizar a URL armazenada se necessário
+            if url_atual != _GLOBAL_RESOURCES.get('cliente_url'):
+                _GLOBAL_RESOURCES['cliente_url'] = url_atual
+                log_debug("URL do cliente atualizada")
+            
+            return True
+    except Exception as e:
+        log_debug(f"Erro ao verificar URL: {str(e)[:60]}")
+    
+    # MÉTODO 1: Usar a URL armazenada (mais confiável)
     if _GLOBAL_RESOURCES.get('cliente_url'):
         try:
             url_cliente = _GLOBAL_RESOURCES['cliente_url']
-            log_debug(f"Navegando diretamente para URL armazenada: {url_cliente[:50]}...")
+            log_debug(f"Tentando URL armazenada: {url_cliente[:50]}...")
             
             driver.get(url_cliente)
-            time.sleep(1.5)
+            time.sleep(2)
             
-            # Verifica se chegou na página correta
-            url_atual = driver.current_url
-            if url_cliente in url_atual or '/lightning/r/Account/' in url_atual:
-                log_ok("✓ Retornou para o cliente usando URL armazenada")
+            # Verificar se chegou na página correta
+            url_nova = driver.current_url
+            if '/lightning/r/Account/' in url_nova or '/lightning/r/Contact/' in url_nova:
+                log_ok("✓ Retornou para o cliente usando URL direta!")
                 return True
+            else:
+                log_debug(f"URL não parece ser do cliente: {url_nova[:60]}")
         except Exception as e:
             log_debug(f"Erro ao usar URL direta: {str(e)[:60]}")
     
-    # Fallback: tenta encontrar a aba específica do cliente
+    # MÉTODO 2: Procurar e clicar na aba do cliente
+    log_info("Tentando encontrar aba do cliente...")
+    
     js_voltar = """
     const clienteUrl = arguments[0];
     
-    // Procura pela aba do cliente (Account) nas abas abertas
-    const tabs = document.querySelectorAll('a[role="tab"][data-tabid]');
+    // Procura todas as abas abertas
+    const tabs = document.querySelectorAll('a[role="tab"]');
     
     let targetTab = null;
+    let tabInfo = [];
     
-    // Primeiro tenta encontrar pela URL exata armazenada
-    if (clienteUrl) {
-        for (const tab of tabs) {
-            const href = tab.getAttribute('href') || '';
-            if (href && clienteUrl.includes(href)) {
-                targetTab = tab;
-                break;
-            }
-        }
-    }
-    
-    // Se não encontrou pela URL, procura pela primeira aba de Account
-    if (!targetTab) {
-        for (const tab of tabs) {
-            const href = tab.getAttribute('href') || '';
-            const title = tab.getAttribute('title') || '';
+    // Coletar informações de todas as abas para debug
+    for (const tab of tabs) {
+        const href = tab.getAttribute('href') || '';
+        const title = tab.getAttribute('title') || '';
+        
+        tabInfo.push({
+            href: href.substring(0, 50),
+            title: title
+        });
+        
+        // Verifica se é uma aba de Account/Contact (cliente)
+        if (href.includes('/lightning/r/Account/') || 
+            href.includes('/lightning/r/Contact/') ||
+            (clienteUrl && href && clienteUrl.includes(href))) {
             
-            // Verifica se é uma aba de Account (cliente)
-            if (href.includes('/lightning/r/Account/') || 
-                title.toLowerCase().includes('conta') ||
-                tab.querySelector('.slds-icon-standard-account')) {
-                
+            // Verificar se a aba está visível
+            const rect = tab.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
                 targetTab = tab;
                 break;
             }
@@ -1403,22 +1421,37 @@ def voltar_para_cliente(driver):
     }
     
     if (!targetTab) {
-        return { success: false, error: 'Aba do cliente não encontrada' };
+        return { 
+            success: false, 
+            error: 'Aba do cliente não encontrada',
+            tabs: tabInfo
+        };
     }
     
     try {
+        // Rolar até a aba
         targetTab.scrollIntoView({block: 'center', behavior: 'instant'});
         
+        // Aguardar um pouco
         let w = 0;
-        while(w < 50) {
+        while(w < 100) {
             const s = Date.now();
             while(Date.now() - s < 5) {}
             w += 5;
         }
         
+        // Clicar na aba
         targetTab.click();
         
-        return { success: true, title: targetTab.getAttribute('title') || 'Cliente' };
+        // Disparar eventos adicionais
+        targetTab.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+        targetTab.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+        
+        return { 
+            success: true, 
+            title: targetTab.getAttribute('title') || 'Cliente',
+            href: targetTab.getAttribute('href')
+        };
     } catch(e) {
         return { success: false, error: String(e) };
     }
@@ -1429,16 +1462,60 @@ def voltar_para_cliente(driver):
         resultado = executar_js_safe(driver, js_voltar, cliente_url)
         
         if resultado and resultado.get('success'):
-            log_ok(f"Retornou para: {resultado.get('title', 'Cliente')}")
-            time.sleep(1.5)
+            log_ok(f"✓ Clicou na aba: {resultado.get('title', 'Cliente')}")
+            time.sleep(2)
+            
+            # Verificar se realmente mudou de página
+            url_final = driver.current_url
+            if '/lightning/r/Account/' in url_final or '/lightning/r/Contact/' in url_final:
+                log_ok("✓ Confirmado na página do cliente!")
+                _GLOBAL_RESOURCES['cliente_url'] = url_final
+                return True
+            else:
+                log_warn(f"Aba clicada, mas URL não mudou corretamente: {url_final[:60]}")
+        else:
+            erro = resultado.get('error', 'sem resposta') if resultado else 'sem resposta'
+            log_warn(f"Não encontrou aba do cliente: {erro}")
+            
+            # Debug: mostrar abas encontradas
+            if resultado and resultado.get('tabs'):
+                log_debug("Abas encontradas:")
+                for tab in resultado.get('tabs')[:3]:
+                    log_debug(f"  - {tab.get('title', 'sem título')}: {tab.get('href', 'sem href')}")
+                    
+    except Exception as e:
+        log_error(f"Erro ao procurar aba: {str(e)[:100]}")
+    
+    # MÉTODO 3: Usar histórico do navegador (voltar página)
+    log_info("Tentando voltar pelo histórico do navegador...")
+    
+    try:
+        # Voltar 1 página
+        driver.back()
+        time.sleep(2)
+        
+        url_back = driver.current_url
+        if '/lightning/r/Account/' in url_back or '/lightning/r/Contact/' in url_back:
+            log_ok("✓ Voltou para cliente usando histórico!")
+            _GLOBAL_RESOURCES['cliente_url'] = url_back
             return True
         else:
-            log_warn(f"Não conseguiu voltar automaticamente: {resultado.get('error') if resultado else 'sem resposta'}")
-            return False
+            log_debug(f"Histórico não levou ao cliente: {url_back[:60]}")
+            # Tentar voltar mais uma vez
+            driver.back()
+            time.sleep(2)
             
+            url_back2 = driver.current_url
+            if '/lightning/r/Account/' in url_back2 or '/lightning/r/Contact/' in url_back2:
+                log_ok("✓ Voltou para cliente usando histórico (2 páginas)!")
+                _GLOBAL_RESOURCES['cliente_url'] = url_back2
+                return True
     except Exception as e:
-        log_error(f"Erro ao voltar para cliente: {str(e)[:100]}")
-        return False
+        log_debug(f"Erro ao usar histórico: {str(e)[:60]}")
+    
+    # Se chegou aqui, nenhum método funcionou
+    log_error("✗ Não conseguiu voltar automaticamente para o cliente")
+    return False
 
 def registrar_informacao_automatico(driver):
     log_info("Iniciando registro automático...")
