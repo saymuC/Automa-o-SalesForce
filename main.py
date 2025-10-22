@@ -1952,137 +1952,304 @@ def registrar_conta_bemol_automatico(driver):
     # 14. Desmarcar checkbox "Enviar email de notificação para contato"
     log_info("13. Desmarcando notificação por email...")
     
-    # Primeiro tentar com Selenium direto
-    try:       
-        # Procurar a checkbox pelo label text
-        wait = WebDriverWait(driver, 5)
-        
-        # Tentar encontrar pelo xpath do label
-        try:
-            label = driver.find_element(By.XPATH, "//label[contains(., 'Enviar email de notificação para contato')]")
+    js_desmarcar_checkbox_lightning = """
+    function findAndUncheckLightningCheckbox() {
+        // Função para buscar em Shadow DOM recursivamente
+        function findInShadowDOM(root, maxDepth = 10, currentDepth = 0) {
+            if (currentDepth > maxDepth) return null;
             
-            # Pegar o 'for' attribute para encontrar o checkbox
-            checkbox_id = label.get_attribute('for')
-            
-            if checkbox_id:
-                checkbox = driver.find_element(By.ID, checkbox_id)
-            else:
-                # Procurar input dentro do label
-                checkbox = label.find_element(By.XPATH, ".//input[@type='checkbox']")
-            
-            # Verificar se está marcado e desmarcar
-            if checkbox.is_selected():
-                checkbox.click()
-                log_ok("Checkbox de notificação desmarcada")
-            else:
-                log_ok("Checkbox já estava desmarcada")
-        
-        except Exception as e_selenium:
-            # Se falhar com Selenium, tentar com JavaScript + Selenium click
-            log_info("Tentando método alternativo...")
-            
-            js_find_checkbox = """
-            function findDeep(root) {
-                const labels = Array.from(root.querySelectorAll('label'));
-                for (const label of labels) {
-                    const text = (label.innerText || label.textContent || '').trim();
-                    if (text.includes('Enviar email de notificação para contato')) {
-                        const forAttr = label.getAttribute('for');
-                        let checkbox = null;
-                        
-                        if (forAttr) {
-                            checkbox = document.getElementById(forAttr);
-                        } else {
-                            checkbox = label.querySelector('input[type="checkbox"]');
-                        }
-                        
-                        if (checkbox) {
-                            // Retornar informações do checkbox
-                            return { 
-                                success: true, 
-                                checked: checkbox.checked,
-                                id: checkbox.id,
-                                xpath: getXPath(checkbox)
-                            };
-                        }
-                    }
-                }
+            // Buscar lightning-input com o título correto
+            const lightningInputs = Array.from(root.querySelectorAll('lightning-input'));
+            for (const input of lightningInputs) {
+                const title = input.getAttribute('title') || '';
+                const dataName = input.getAttribute('data-option-name') || '';
                 
-                // Tentar buscar no shadow DOM
-                const all = root.querySelectorAll('*');
-                for (const el of all) {
-                    try {
-                        if (el.shadowRoot) {
-                            const result = findDeep(el.shadowRoot);
-                            if (result) return result;
-                        }
-                    } catch(e){}
-                }
-                
-                return { success: false };
-            }
-            
-            function getXPath(element) {
-                if (element.id !== '') {
-                    return 'id("' + element.id + '")';
-                }
-                if (element === document.body) {
-                    return element.tagName;
-                }
-                var ix = 0;
-                var siblings = element.parentNode.childNodes;
-                for (var i = 0; i < siblings.length; i++) {
-                    var sibling = siblings[i];
-                    if (sibling === element) {
-                        return getXPath(element.parentNode) + '/' + element.tagName + '[' + (ix + 1) + ']';
-                    }
-                    if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
-                        ix++;
-                    }
+                if (title.includes('Enviar email de notificação') || 
+                    dataName === 'triggerOtherEmail') {
+                    return input;
                 }
             }
             
-            return findDeep(document);
-            """
+            // Buscar recursivamente em todos os shadow roots
+            const allElements = root.querySelectorAll('*');
+            for (const el of allElements) {
+                try {
+                    if (el.shadowRoot) {
+                        const found = findInShadowDOM(el.shadowRoot, maxDepth, currentDepth + 1);
+                        if (found) return found;
+                    }
+                } catch(e) {}
+            }
             
-            res_find = executar_js_safe(driver, js_find_checkbox)
+            return null;
+        }
+        
+        // Buscar o componente lightning-input
+        let lightningInput = findInShadowDOM(document);
+        
+        if (!lightningInput) {
+            // Fallback: buscar diretamente por atributos conhecidos
+            const allInputs = document.querySelectorAll('lightning-input');
+            for (const input of allInputs) {
+                const title = input.getAttribute('title') || '';
+                if (title.includes('Enviar email de notificação')) {
+                    lightningInput = input;
+                    break;
+                }
+            }
+        }
+        
+        if (!lightningInput) {
+            return { success: false, error: 'Lightning-input não encontrado' };
+        }
+        
+        // Verificar estado INICIAL
+        const isCheckedBefore = lightningInput.hasAttribute('checked');
+        
+        if (!isCheckedBefore) {
+            return { success: true, action: 'already_unchecked', wasChecked: false };
+        }
+        
+        // Encontrar o input real dentro do shadow DOM
+        let realCheckbox = null;
+        
+        try {
+            // Navegar pelo shadow DOM do lightning-input
+            if (lightningInput.shadowRoot) {
+                const primitiveCheckbox = lightningInput.shadowRoot.querySelector('lightning-primitive-input-checkbox');
+                if (primitiveCheckbox && primitiveCheckbox.shadowRoot) {
+                    realCheckbox = primitiveCheckbox.shadowRoot.querySelector('input[type="checkbox"]');
+                }
+            }
+        } catch(e) {}
+        
+        // Se não achou no shadow, buscar por ID baseado no padrão
+        if (!realCheckbox) {
+            // Tentar encontrar pelo name attribute
+            const name = lightningInput.getAttribute('data-option-name');
+            if (name) {
+                realCheckbox = document.querySelector(`input[name="${name}"]`);
+            }
+        }
+        
+        // Estratégia de desmarcação
+        try {
+            // Rolar até o elemento
+            lightningInput.scrollIntoView({block: 'center', behavior: 'instant'});
             
-            if res_find and res_find.get('success'):
-                is_checked = res_find.get('checked', False)
-                checkbox_id = res_find.get('id')
+            let w = 0;
+            while(w < 50) {
+                const s = Date.now();
+                while(Date.now() - s < 5) {}
+                w += 5;
+            }
+            
+            // Método 1: Clicar no checkbox real se encontrou
+            if (realCheckbox) {
+                realCheckbox.focus();
+                realCheckbox.click();
                 
-                if is_checked:
-                    # Encontrou e está marcado, usar Selenium para clicar
-                    if checkbox_id:
+                w = 0;
+                while(w < 100) {
+                    const s = Date.now();
+                    while(Date.now() - s < 5) {}
+                    w += 5;
+                }
+                
+                // Verificar se funcionou IMEDIATAMENTE após clicar
+                const isStillChecked = lightningInput.hasAttribute('checked');
+                if (!isStillChecked) {
+                    return { success: true, action: 'unchecked_via_real_checkbox', wasChecked: true, nowChecked: false };
+                }
+            }
+            
+            // Método 2: Clicar no próprio lightning-input
+            lightningInput.click();
+            
+            w = 0;
+            while(w < 100) {
+                const s = Date.now();
+                while(Date.now() - s < 5) {}
+                w += 5;
+            }
+            
+            // Verificar se funcionou após clicar no lightning-input
+            let isStillChecked = lightningInput.hasAttribute('checked');
+            if (!isStillChecked) {
+                return { success: true, action: 'unchecked_via_lightning_click', wasChecked: true, nowChecked: false };
+            }
+            
+            // Método 3: Remover o atributo checked diretamente E forçar desmarcação
+            lightningInput.removeAttribute('checked');
+            
+            if (realCheckbox) {
+                realCheckbox.checked = false;
+            }
+            
+            // Disparar eventos DEPOIS de desmarcar
+            lightningInput.dispatchEvent(new Event('change', {bubbles: true}));
+            lightningInput.dispatchEvent(new Event('input', {bubbles: true}));
+            
+            if (realCheckbox) {
+                realCheckbox.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+            
+            w = 0;
+            while(w < 150) {
+                const s = Date.now();
+                while(Date.now() - s < 5) {}
+                w += 5;
+            }
+            
+            // Verificação final DEPOIS de aplicar todos os métodos
+            isStillChecked = lightningInput.hasAttribute('checked');
+            
+            return { 
+                success: true, 
+                action: 'forced_uncheck',
+                wasChecked: true,
+                nowChecked: isStillChecked,
+                effectivelyUnchecked: !isStillChecked
+            };
+            
+        } catch(e) {
+            return { success: false, error: String(e) };
+        }
+    }
+    
+    return findAndUncheckLightningCheckbox();
+    """
+    
+    try:
+        resultado = executar_js_safe(driver, js_desmarcar_checkbox_lightning)
+        
+        if resultado:
+            if resultado.get('success'):
+                action = resultado.get('action', 'unknown')
+                
+                if action == 'already_unchecked':
+                    log_ok("✓ Checkbox já estava desmarcada")
+                elif action == 'unchecked_via_real_checkbox':
+                    log_ok("✓ Checkbox desmarcada através do input real!")
+                elif action == 'unchecked_via_lightning_click':
+                    log_ok("✓ Checkbox desmarcada através do lightning-input!")
+                elif action == 'unchecked_via_remove_attribute':
+                    log_ok("✓ Checkbox desmarcada removendo atributo!")
+                    
+                    log_info("Aplicando método super forçado para Lightning...")
+                    driver.execute_script("""
+                        // Buscar TODOS os lightning-input
+                        const allLightningInputs = document.querySelectorAll('lightning-input');
+                        
+                        for (const input of allLightningInputs) {
+                            const title = input.getAttribute('title') || '';
+                            const dataName = input.getAttribute('data-option-name') || '';
+                            
+                            if (title.includes('email') || dataName === 'triggerOtherEmail') {
+                                // Remover atributo checked
+                                input.removeAttribute('checked');
+                                
+                                // Tentar acessar o shadowRoot e desmarcar o input real
+                                try {
+                                    if (input.shadowRoot) {
+                                        const primitive = input.shadowRoot.querySelector('lightning-primitive-input-checkbox');
+                                        if (primitive && primitive.shadowRoot) {
+                                            const realInput = primitive.shadowRoot.querySelector('input[type="checkbox"]');
+                                            if (realInput) {
+                                                realInput.checked = false;
+                                                realInput.dispatchEvent(new Event('change', {bubbles: true}));
+                                            }
+                                        }
+                                    }
+                                } catch(e) {}
+                                
+                                // Disparar eventos no lightning-input
+                                input.dispatchEvent(new Event('change', {bubbles: true}));
+                                input.dispatchEvent(new Event('input', {bubbles: true}));
+                                
+                                break;
+                            }
+                        }
+                    """)
+                    time.sleep(0.3)
+                    log_ok("Método super forçado aplicado")
+            else:
+                erro = resultado.get('error', 'desconhecido')
+                log_warn(f"Erro ao buscar checkbox: {erro}")
+                
+                log_info("Tentando com Selenium direto...")
+                try:
+                    lightning_inputs = driver.find_elements(By.TAG_NAME, 'lightning-input')
+                    
+                    for li in lightning_inputs:
                         try:
-                            checkbox_el = driver.find_element(By.ID, checkbox_id)
-                            checkbox_el.click()
-                            log_ok("Checkbox desmarcada via ID")
+                            title = li.get_attribute('title')
+                            if title and 'Enviar email de notificação' in title:
+                                log_ok(f"Encontrado via Selenium: {title}")
+                                
+                                # Rolar até elemento
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", li)
+                                time.sleep(0.2)
+                                
+                                # Verificar se está marcado
+                                is_checked = li.get_attribute('checked') is not None
+                                
+                                if is_checked:
+                                    # Tentar clicar
+                                    try:
+                                        li.click()
+                                        time.sleep(0.2)
+                                        log_ok("Clicado via Selenium")
+                                    except:
+                                        # Clicar via JavaScript
+                                        driver.execute_script("arguments[0].click();", li)
+                                        time.sleep(0.2)
+                                        log_ok("Clicado via JavaScript")
+                                    
+                                    # Forçar remoção do atributo
+                                    driver.execute_script("arguments[0].removeAttribute('checked');", li)
+                                    log_ok("Atributo removido via JavaScript")
+                                else:
+                                    log_ok("Já estava desmarcado")
+                                
+                                break
                         except:
-                            # Usar JavaScript como último recurso
-                            driver.execute_script("""
-                                const cb = document.getElementById(arguments[0]);
-                                if (cb) {
-                                    cb.checked = false;
-                                    cb.click();
-                                    cb.dispatchEvent(new Event('change', {bubbles: true}));
-                                }
-                            """, checkbox_id)
-                            log_ok("Checkbox desmarcada via JavaScript")
+                            continue
                     else:
-                        log_warn("Checkbox encontrada mas sem ID")
-                        input("Desmarque a checkbox 'Enviar email de notificação' manualmente e pressione Enter...")
-                else:
-                    log_ok("Checkbox já estava desmarcada")
-            else:
-                log_warn("Não encontrou checkbox de notificação")
-                input("Se houver checkbox 'Enviar email de notificação para contato', desmarque manualmente e pressione Enter...")
+                        log_warn("Não encontrou lightning-input com Selenium")
+                        
+                except Exception as e_sel:
+                    log_error(f"Erro com Selenium: {str(e_sel)[:100]}")
+        else:
+            log_warn("JavaScript não retornou resposta")
     
     except Exception as e:
-        log_warn(f"Erro ao processar checkbox: {e}")
-        input("Verifique e desmarque a checkbox de notificação manualmente se necessário, depois pressione Enter...")
+        log_error(f"Erro ao processar checkbox: {str(e)[:100]}")
     
     time.sleep(0.3)
+    
+    # Verificação final robusta
+    log_info("Verificando estado final...")
+    time.sleep(0.5)
+    
+    verificacao = executar_js_safe(driver, """
+    const lightningInputs = document.querySelectorAll('lightning-input');
+    for (const input of lightningInputs) {
+        const title = input.getAttribute('title') || '';
+        const dataName = input.getAttribute('data-option-name') || '';
+        
+        if (title.includes('Enviar email de notificação') || dataName === 'triggerOtherEmail') {
+            const hasChecked = input.hasAttribute('checked');
+            return { 
+                found: true, 
+                checked: hasChecked,
+                title: title 
+            };
+        }
+    }
+    return { found: false };
+    """)
+    
     
     # Resumo final
     print("\n" + "="*70)
