@@ -203,11 +203,6 @@ def esperar_mfa(driver, timeout=TIMEOUT_MFA):
     Aguarda a aprovação do MFA automaticamente, verificando continuamente
     se o usuário já passou pela autenticação. NÃO precisa apertar Enter!
     """
-    log_warn("⚠️  VERIFICAÇÃO MFA DETECTADA!")
-    print("\n" + "="*70)
-    print("   ATENÇÃO: Complete a autenticação MFA no navegador")
-    print("   O script continuará AUTOMATICAMENTE após aprovação")
-    print("="*70 + "\n")
     
     wait_start = time.time()
     last_check = 0
@@ -1904,7 +1899,7 @@ def registrar_conta_bemol_automatico(driver):
     
     # 7. Preencher Descrição
     log_info("6. Preenchendo Descrição...")
-    descricao_texto = f"Cliente em contato solicitou a atualização do seu número de telefone, o mesmo não possui acesso ao antigo. TEL: {telefone_conta} email: {email_conta} Todos os dados foram confirmados pelo cliente"
+    descricao_texto = f"Cliente em contato solicitou a atualização do seu número de telefone, o mesmo não possui acesso ao antigo.\n\nTEL: {telefone_conta}\nemail: {email_conta}\n\nTodos os dados foram confirmados pelo cliente"
     
     js_fill_textarea = """
     const text = arguments[0];
@@ -1945,32 +1940,26 @@ def registrar_conta_bemol_automatico(driver):
     res_desc = executar_js_safe(driver, js_fill_textarea, descricao_texto)
     if res_desc and res_desc.get('success'):
         log_ok("Descrição preenchida")
-    time.sleep(0.2)
     
     # 8. Sistema Operacional (3ª opção)
     log_info("7. Sistema Operacional (3ª opção)...")
     selecionar_combobox_melhorado(driver, 'Sistema Operacional', 3, 'Sistema Operacional')
-    time.sleep(0.2)
     
     # 9. Origem do caso (2ª opção)
     log_info("8. Origem do caso (2ª opção)...")
     selecionar_combobox_melhorado(driver, 'Origem do caso', 2, 'Origem do caso')
-    time.sleep(0.2)
     
     # 10. Motivo do contato (2ª opção)
     log_info("9. Motivo do contato (2ª opção)...")
     selecionar_combobox_melhorado(driver, 'Motivo do contato', 2, 'Motivo do contato')
-    time.sleep(0.2)
     
     # 11. Categoria (5ª opção)
     log_info("10. Categoria (5ª opção)...")
     selecionar_combobox_melhorado(driver, 'Categoria', 5, 'Categoria')
-    time.sleep(0.2)
     
     # 12. Subcategoria (5ª opção)
     log_info("11. Subcategoria (5ª opção)...")
     selecionar_combobox_melhorado(driver, 'Subcategoria', 5, 'Subcategoria')
-    time.sleep(0.2)
     
     # 13. Verificar em (próximo dia) - CORRIGIDO
     log_info("12. Preenchendo data 'Verificar em' (próximo dia)...")
@@ -2024,9 +2013,7 @@ def registrar_conta_bemol_automatico(driver):
         log_warn(f"Não conseguiu preencher automaticamente")
         print(f"Digite a data manualmente no formato DD/MM/YYYY: {data_formatada}")
         input("Pressione Enter após preencher a data...")
-    
-    time.sleep(0.3)
-    
+        
     # 14. Desmarcar checkbox "Enviar email de notificação para contato"
     log_info("13. Desmarcando notificação por email...")
     
@@ -2303,12 +2290,9 @@ def registrar_conta_bemol_automatico(driver):
     
     except Exception as e:
         log_error(f"Erro ao processar checkbox: {str(e)[:100]}")
-    
-    time.sleep(0.3)
-    
+        
     # Verificação final robusta
     log_info("Verificando estado final...")
-    time.sleep(0.5)
     
     verificacao = executar_js_safe(driver, """
     const lightningInputs = document.querySelectorAll('lightning-input');
@@ -2328,8 +2312,6 @@ def registrar_conta_bemol_automatico(driver):
     return { found: false };
     """)
     
-    
-    # Resumo final
     print("\n" + "="*70)
     log_ok("FORMULÁRIO COMPLETO!")
     print("="*70)
