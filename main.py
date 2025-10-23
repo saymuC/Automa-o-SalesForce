@@ -5,6 +5,7 @@ import shutil
 import os
 import signal
 import sys
+import traceback
 
 from datetime import datetime, timedelta
 
@@ -168,6 +169,7 @@ def criar_driver(initial_url="https://login.salesforce.com/"):
         opts.add_argument("--no-first-run")
         opts.add_argument("--disable-dev-shm-usage")
         opts.page_load_strategy = 'eager'
+        opts.add_argument("--force-device-scale-factor=0.75")
         
         driver = webdriver.Edge(service=service, options=opts)
         _GLOBAL_RESOURCES['driver'] = driver
@@ -177,10 +179,13 @@ def criar_driver(initial_url="https://login.salesforce.com/"):
         
         try:
             driver.get(initial_url)
+            time.sleep(1)
         except Exception:
             pass
-        
-        # Forçar foco no terminal após abrir o navegador
+        try:
+            driver.execute_script("document.body.style.zoom='75%'")
+        except Exception as e:
+            log_debug(f"Aviso: não conseguiu aplicar zoom via JS: {str(e)[:50]}")
         if sys.platform == 'win32':
             try:
                 import ctypes
@@ -196,7 +201,6 @@ def criar_driver(initial_url="https://login.salesforce.com/"):
         log_error(f"Falha ao iniciar Edge: {e}")
         cleanup_all_resources()
         raise
-
 def esperar_mfa(driver, timeout=TIMEOUT_MFA):
     """
     Aguarda a aprovação do MFA automaticamente, verificando continuamente
@@ -1929,7 +1933,7 @@ def registrar_conta_bemol_automatico(driver):
     
     # 7. Preencher Descrição
     log_info("6. Preenchendo Descrição...")
-    descricao_texto = f"Cliente em contato solicitou a atualização do seu número de telefone, o mesmo não possui acesso ao antigo.\n\nTEL: {telefone_conta}\nemail: {email_conta}\n\nTodos os dados foram confirmados pelo cliente"
+    descricao_texto = f"Cliente em contato solicitou a atualização do seu número de telefone, o mesmo informa que não possui acesso ao número antigo.\n\nTEL: {telefone_conta}\nemail: {email_conta}\n\nTodos os dados foram confirmados pelo cliente"
     
     js_fill_textarea = """
     const text = arguments[0];
@@ -2324,24 +2328,6 @@ def registrar_conta_bemol_automatico(driver):
     # Verificação final robusta
     log_info("Verificando estado final...")
     
-    verificacao = executar_js_safe(driver, """
-    const lightningInputs = document.querySelectorAll('lightning-input');
-    for (const input of lightningInputs) {
-        const title = input.getAttribute('title') || '';
-        const dataName = input.getAttribute('data-option-name') || '';
-        
-        if (title.includes('Enviar email de notificação') || dataName === 'triggerOtherEmail') {
-            const hasChecked = input.hasAttribute('checked');
-            return { 
-                found: true, 
-                checked: hasChecked,
-                title: title 
-            };
-        }
-    }
-    return { found: false };
-    """)
-    
     print("\n" + "="*70)
     log_ok("FORMULÁRIO COMPLETO!")
     print("="*70)
@@ -2681,7 +2667,6 @@ def main():
         log_warn("\n\nOperação interrompida pelo usuário (Ctrl+C)")
     except Exception as e:
         log_error(f"\nErro durante execução: {e}")
-        import traceback
         print("\n" + "="*70)
         print("   DETALHES DO ERRO:")
         print("="*70)
