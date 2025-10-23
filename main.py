@@ -7,7 +7,6 @@ import signal
 import sys
 
 from datetime import datetime, timedelta
-import time
 
 try:
     from selenium import webdriver
@@ -706,7 +705,7 @@ def buscar_cpf_automatico(driver, cpf, max_tentativas=3):
         return False
     
     log_info("Aguardando carregamento completo da página...")
-    time.sleep(0.3)
+    time.sleep(0.1)
     
     for tentativa in range(1, max_tentativas + 1):
         log_info(f"Tentativa {tentativa}/{max_tentativas}...")
@@ -733,7 +732,6 @@ def buscar_cpf_automatico(driver, cpf, max_tentativas=3):
                         )
                     except:
                         log_warn("Input não encontrado ou não está clicável")
-                        time.sleep(0.2)
                         continue
             
             if input_element:
@@ -746,19 +744,15 @@ def buscar_cpf_automatico(driver, cpf, max_tentativas=3):
                             if (el.style) el.style.display = 'none';
                         });
                     """)
-                    time.sleep(0.2)
                     
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});", input_element)
-                    time.sleep(0.2)
                     
                     driver.execute_script("""
                         arguments[0].focus();
                         arguments[0].click();
                     """, input_element)
-                    time.sleep(0.2)
                     
                     driver.execute_script("arguments[0].value = '';", input_element)
-                    time.sleep(0.2)
                     
                     for i, char in enumerate(cpf):
                         driver.execute_script("""
@@ -778,24 +772,19 @@ def buscar_cpf_automatico(driver, cpf, max_tentativas=3):
                         arguments[0].dispatchEvent(new Event('change', {bubbles: true}));
                     """, input_element)
                     
-                    time.sleep(0.5)
                     
                     valor_digitado = input_element.get_attribute('value')
                     
                     if valor_digitado and cpf in valor_digitado.replace('-', '').replace('.', ''):
                         log_ok(f"CPF digitado com sucesso: {valor_digitado}")
-                        time.sleep(0.2)
                     else:
                         log_warn(f"CPF pode não ter sido digitado corretamente. Valor no campo: '{valor_digitado}'")
-                        time.sleep(0.2)
                     
                 except Exception as e:
                     log_warn(f"Erro na digitação: {str(e)[:100]}")
-                    time.sleep(0.2)
                     continue
             else:
                 log_warn("Input não foi localizado")
-                time.sleep(0.3)
                 continue
             
             script_buscar = """
@@ -1067,14 +1056,6 @@ def selecionar_combobox_melhorado(driver, label, arrow_count, descricao="", max_
     }
     
     button.scrollIntoView({block: 'center', behavior: 'instant'});
-    
-    let w = 0;
-    while(w < 30) {
-        const s = Date.now();
-        while(Date.now() - s < 5) {}
-        w += 5;
-    }
-    
     button.classList.add('sf-automation-target');
     window.__sfAutomationButton = button;
     
@@ -1201,38 +1182,16 @@ def selecionar_combobox_melhorado(driver, label, arrow_count, descricao="", max_
         const dropdownRect = dropdown.getBoundingClientRect();
         const optionRect = targetOption.getBoundingClientRect();
         
+        // Scroll apenas se necessário
         if (optionRect.bottom > dropdownRect.bottom || optionRect.top < dropdownRect.top) {
-            dropdown.scrollTop += (optionRect.top - dropdownRect.top) - (dropdownRect.height / 2);
-            
-            let w = 0;
-            while(w < 20) {
-                const s = Date.now();
-                while(Date.now() - s < 5) {}
-                w += 5;
-            }
+            targetOption.scrollIntoView({block: 'nearest', behavior: 'instant'});
         }
         
-        targetOption.scrollIntoView({block: 'nearest', behavior: 'auto'});
-        
-        let w = 0;
-        while(w < 20) {
-            const s = Date.now();
-            while(Date.now() - s < 5) {}
-            w += 5;
-        }
-        
-        targetOption.click();
-        
+        // Clique direto - eventos em lote
         targetOption.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
         targetOption.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
         targetOption.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-        
-        w = 0;
-        while(w < 50) {
-            const s = Date.now();
-            while(Date.now() - s < 5) {}
-            w += 5;
-        }
+        targetOption.click();
         
         const span = button.querySelector('span.slds-truncate');
         const currentValue = span ? (span.innerText || '').trim() : '';
@@ -1265,55 +1224,46 @@ def selecionar_combobox_melhorado(driver, label, arrow_count, descricao="", max_
         try:
             prep = executar_js_safe(driver, js_preparar, label)
             if not prep or not prep.get('success'):
-                time.sleep(0.01)
+                if tentativa < max_tentativas:
+                    time.sleep(0.05)
                 continue
             
-            time.sleep(0.01)
-            
             try:
-                try:
-                    button_element = driver.find_element(By.CLASS_NAME, 'sf-automation-target')
-                except:
-                    button_element = driver.execute_script("return window.__sfAutomationButton;")
-                    if not button_element:
+                button_element = driver.execute_script("return window.__sfAutomationButton;")
+                if not button_element:
+                    try:
+                        button_element = driver.find_element(By.CLASS_NAME, 'sf-automation-target')
+                    except:
                         raise Exception("Button not accessible")
                 
-                driver.execute_script("arguments[0].focus();", button_element)
-                time.sleep(0.01)
-                
-                actions = ActionChains(driver)
-                actions.move_to_element(button_element).pause(0.01).click().pause(0.05).perform()
-                
-                time.sleep(0.01)
+                # Clique mais direto e rápido
+                driver.execute_script("arguments[0].click();", button_element)
                 
             except Exception:
                 executar_js_safe(driver, "const b = document.querySelector('.sf-automation-target'); if(b) b.classList.remove('sf-automation-target'); delete window.__sfAutomationButton;")
-                time.sleep(0.01)
+                if tentativa < max_tentativas:
+                    time.sleep(0.05)
                 continue
+            
+            # Aguarda brevemente para dropdown abrir
+            time.sleep(0.1)
             
             verif = executar_js_safe(driver, js_verificar_aberto)
             
             if not verif:
-                time.sleep(0.01)
+                if tentativa < max_tentativas:
+                    time.sleep(0.05)
                 continue
             
-            if not verif.get('opened'):
-                if tentativa < max_tentativas:
-                    try:
-                        button_element.click()
-                        time.sleep(0.03)
-                        button_element.click()
-                        time.sleep(0.1)
-                        
-                        verif2 = executar_js_safe(driver, js_verificar_aberto)
-                        if not verif2 or not verif2.get('opened'):
-                            time.sleep(0.01)
-                            continue
-                    except Exception:
-                        time.sleep(0.01)
+            # Se não abriu, tenta novamente
+            if not verif.get('opened') and tentativa < max_tentativas:
+                try:
+                    driver.execute_script("arguments[0].click();", button_element)
+                    time.sleep(0.1)
+                    verif = executar_js_safe(driver, js_verificar_aberto)
+                    if not verif or not verif.get('opened'):
                         continue
-                else:
-                    time.sleep(0.01)
+                except Exception:
                     continue
             
             option_index = arrow_count - 1
@@ -1324,11 +1274,10 @@ def selecionar_combobox_melhorado(driver, label, arrow_count, descricao="", max_
                 valor = resultado.get('value', descricao)
                 log_ok(f"Selecionado: {valor}")
                 return True
-            else:
-                time.sleep(0.01)
             
         except Exception:
-            time.sleep(0.01)
+            if tentativa < max_tentativas:
+                time.sleep(0.05)
     
     log_warn(f"Automação falhou após {max_tentativas} tentativas")
     
@@ -1342,81 +1291,62 @@ def selecionar_combobox_melhorado(driver, label, arrow_count, descricao="", max_
     log_warn(f"'{label}' não foi selecionado")
     return False
 
-def voltar_para_cliente(driver):
+def voltar_para_cliente(driver, forcar_retorno=False):
     """Navega de volta para a aba do cliente (Account) após salvar um caso"""
     global _GLOBAL_RESOURCES
     
     log_info("Retornando para a página do cliente...")
     
-    # PRIMEIRO: Verificar se JÁ está na página do cliente
-    try:
-        url_atual = driver.current_url
-        log_debug(f"URL atual: {url_atual[:70]}")
-        
-        if '/lightning/r/Account/' in url_atual or '/lightning/r/Contact/' in url_atual:
-            log_ok("✓ Já está na página do cliente!")
-            
-            # Atualizar a URL armazenada se necessário
-            if url_atual != _GLOBAL_RESOURCES.get('cliente_url'):
-                _GLOBAL_RESOURCES['cliente_url'] = url_atual
-                log_debug("URL do cliente atualizada")
-            
-            return True
-    except Exception as e:
-        log_debug(f"Erro ao verificar URL: {str(e)[:60]}")
-    
-    # MÉTODO 1: Usar a URL armazenada (mais confiável)
-    if _GLOBAL_RESOURCES.get('cliente_url'):
+    # PRIMEIRO: Verificar se JÁ está na página do cliente (pular se forcar_retorno=True)
+    if not forcar_retorno:
         try:
-            url_cliente = _GLOBAL_RESOURCES['cliente_url']
-            log_debug(f"Tentando URL armazenada: {url_cliente[:50]}...")
+            url_atual = driver.current_url
+            log_debug(f"URL atual: {url_atual[:70]}")
             
-            driver.get(url_cliente)
-            time.sleep(2)
-            
-            # Verificar se chegou na página correta
-            url_nova = driver.current_url
-            if '/lightning/r/Account/' in url_nova or '/lightning/r/Contact/' in url_nova:
-                log_ok("✓ Retornou para o cliente usando URL direta!")
+            if '/lightning/r/Account/' in url_atual or '/lightning/r/Contact/' in url_atual:
+                log_ok("✓ Já está na página do cliente!")
+                _GLOBAL_RESOURCES['cliente_url'] = url_atual
                 return True
-            else:
-                log_debug(f"URL não parece ser do cliente: {url_nova[:60]}")
         except Exception as e:
-            log_debug(f"Erro ao usar URL direta: {str(e)[:60]}")
+            log_debug(f"Erro ao verificar URL: {str(e)[:60]}")
     
-    # MÉTODO 2: Procurar e clicar na aba do cliente
-    log_info("Tentando encontrar aba do cliente...")
+    # MÉTODO 1: Procurar e clicar na aba do cliente (MAIS CONFIÁVEL)
+    log_info("Procurando aba do cliente aberta...")
     
     js_voltar = """
-    const clienteUrl = arguments[0];
+    // Procura TODAS as abas abertas, incluindo as que estão no overflow
+    let allTabs = [];
     
-    // Procura todas as abas abertas
-    const tabs = document.querySelectorAll('a[role="tab"]');
+    // Abas visíveis
+    const visibleTabs = document.querySelectorAll('a[role="tab"]');
+    allTabs.push(...Array.from(visibleTabs));
+    
+    // Abas no menu overflow (quando tem muitas abas)
+    const overflowItems = document.querySelectorAll('li[role="presentation"] a[data-tab-value]');
+    allTabs.push(...Array.from(overflowItems));
     
     let targetTab = null;
-    let tabInfo = [];
+    let foundTabs = [];
     
-    // Coletar informações de todas as abas para debug
-    for (const tab of tabs) {
+    // Procurar por aba de Account ou Contact
+    for (const tab of allTabs) {
         const href = tab.getAttribute('href') || '';
         const title = tab.getAttribute('title') || '';
+        const dataValue = tab.getAttribute('data-tab-value') || '';
         
-        tabInfo.push({
-            href: href.substring(0, 50),
-            title: title
+        foundTabs.push({
+            title: title.substring(0, 40),
+            href: href.substring(0, 40),
+            visible: tab.offsetParent !== null
         });
         
-        // Verifica se é uma aba de Account/Contact (cliente)
+        // Verifica se é uma aba de Account/Contact
         if (href.includes('/lightning/r/Account/') || 
             href.includes('/lightning/r/Contact/') ||
-            (clienteUrl && href && clienteUrl.includes(href))) {
-            
-            // Verificar se a aba está visível
-            const rect = tab.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                targetTab = tab;
-                break;
-            }
+            dataValue.includes('Account') ||
+            dataValue.includes('Contact')) {
+            targetTab = tab;
+            break;
         }
     }
     
@@ -1424,33 +1354,37 @@ def voltar_para_cliente(driver):
         return { 
             success: false, 
             error: 'Aba do cliente não encontrada',
-            tabs: tabInfo
+            foundTabs: foundTabs.slice(0, 5)
         };
     }
     
     try {
-        // Rolar até a aba
-        targetTab.scrollIntoView({block: 'center', behavior: 'instant'});
-        
-        // Aguardar um pouco
-        let w = 0;
-        while(w < 100) {
-            const s = Date.now();
-            while(Date.now() - s < 5) {}
-            w += 5;
+        // Se a aba não estiver visível, tentar torná-la visível
+        if (targetTab.offsetParent === null) {
+            const overflowButton = document.querySelector('button[title="Mais abas"]');
+            if (overflowButton) {
+                overflowButton.click();
+                // Pequena pausa
+                let w = 0;
+                while(w < 50) { w++; }
+            }
         }
         
-        // Clicar na aba
-        targetTab.click();
+        // Scroll até a aba
+        targetTab.scrollIntoView({block: 'center', behavior: 'instant'});
         
-        // Disparar eventos adicionais
-        targetTab.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-        targetTab.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+        // Pequena pausa
+        let w = 0;
+        while(w < 30) { w++; }
+        
+        // Clicar múltiplas vezes para garantir
+        targetTab.click();
+        targetTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         
         return { 
             success: true, 
             title: targetTab.getAttribute('title') || 'Cliente',
-            href: targetTab.getAttribute('href')
+            href: targetTab.getAttribute('href') || ''
         };
     } catch(e) {
         return { success: false, error: String(e) };
@@ -1458,64 +1392,83 @@ def voltar_para_cliente(driver):
     """
     
     try:
-        cliente_url = _GLOBAL_RESOURCES.get('cliente_url', '')
-        resultado = executar_js_safe(driver, js_voltar, cliente_url)
+        resultado = executar_js_safe(driver, js_voltar)
         
         if resultado and resultado.get('success'):
             log_ok(f"✓ Clicou na aba: {resultado.get('title', 'Cliente')}")
-            time.sleep(2)
+            time.sleep(1.5)
             
-            # Verificar se realmente mudou de página
+            # Verificar se realmente mudou
             url_final = driver.current_url
             if '/lightning/r/Account/' in url_final or '/lightning/r/Contact/' in url_final:
                 log_ok("✓ Confirmado na página do cliente!")
                 _GLOBAL_RESOURCES['cliente_url'] = url_final
                 return True
             else:
-                log_warn(f"Aba clicada, mas URL não mudou corretamente: {url_final[:60]}")
+                log_debug(f"URL após clique: {url_final[:60]}")
         else:
             erro = resultado.get('error', 'sem resposta') if resultado else 'sem resposta'
-            log_warn(f"Não encontrou aba do cliente: {erro}")
+            log_warn(f"Não encontrou aba: {erro}")
             
-            # Debug: mostrar abas encontradas
-            if resultado and resultado.get('tabs'):
-                log_debug("Abas encontradas:")
-                for tab in resultado.get('tabs')[:3]:
-                    log_debug(f"  - {tab.get('title', 'sem título')}: {tab.get('href', 'sem href')}")
-                    
+            # Mostrar abas encontradas para debug
+            if resultado and resultado.get('foundTabs'):
+                log_debug("Abas abertas:")
+                for tab in resultado.get('foundTabs', [])[:3]:
+                    log_debug(f"  - {tab.get('title', '?')[:30]}")
     except Exception as e:
         log_error(f"Erro ao procurar aba: {str(e)[:100]}")
     
-    # MÉTODO 3: Usar histórico do navegador (voltar página)
-    log_info("Tentando voltar pelo histórico do navegador...")
-    
-    try:
-        # Voltar 1 página
-        driver.back()
-        time.sleep(2)
-        
-        url_back = driver.current_url
-        if '/lightning/r/Account/' in url_back or '/lightning/r/Contact/' in url_back:
-            log_ok("✓ Voltou para cliente usando histórico!")
-            _GLOBAL_RESOURCES['cliente_url'] = url_back
-            return True
-        else:
-            log_debug(f"Histórico não levou ao cliente: {url_back[:60]}")
-            # Tentar voltar mais uma vez
-            driver.back()
-            time.sleep(2)
+    # MÉTODO 2: Usar a URL armazenada
+    if _GLOBAL_RESOURCES.get('cliente_url'):
+        try:
+            url_cliente = _GLOBAL_RESOURCES['cliente_url']
+            log_info("Tentando URL armazenada...")
+            log_debug(f"URL: {url_cliente[:50]}...")
             
-            url_back2 = driver.current_url
-            if '/lightning/r/Account/' in url_back2 or '/lightning/r/Contact/' in url_back2:
-                log_ok("✓ Voltou para cliente usando histórico (2 páginas)!")
-                _GLOBAL_RESOURCES['cliente_url'] = url_back2
+            driver.get(url_cliente)
+            time.sleep(1.5)
+            
+            url_nova = driver.current_url
+            if '/lightning/r/Account/' in url_nova or '/lightning/r/Contact/' in url_nova:
+                log_ok("✓ Retornou usando URL direta!")
+                return True
+        except Exception as e:
+            log_debug(f"Erro com URL direta: {str(e)[:60]}")
+    
+    # MÉTODO 3: Histórico do navegador
+    log_info("Tentando usar histórico...")
+    try:
+        for i in range(3):  # Tentar voltar até 3 páginas
+            driver.back()
+            time.sleep(1)
+            
+            url_back = driver.current_url
+            if '/lightning/r/Account/' in url_back or '/lightning/r/Contact/' in url_back:
+                log_ok(f"✓ Voltou para cliente (histórico -{i+1})!")
+                _GLOBAL_RESOURCES['cliente_url'] = url_back
                 return True
     except Exception as e:
-        log_debug(f"Erro ao usar histórico: {str(e)[:60]}")
+        log_debug(f"Erro no histórico: {str(e)[:60]}")
     
-    # Se chegou aqui, nenhum método funcionou
-    log_error("✗ Não conseguiu voltar automaticamente para o cliente")
+    # Se nada funcionou
+    log_error("✗ Não conseguiu voltar automaticamente")
     return False
+
+
+def verificar_se_esta_na_pagina_cliente(driver):
+    """Verifica se realmente está na página do cliente"""
+    try:
+        url_atual = driver.current_url
+        
+        if '/lightning/r/Account/' in url_atual or '/lightning/r/Contact/' in url_atual:
+            log_debug("✓ Está na página do cliente")
+            return True
+        
+        log_debug(f"✗ NÃO está na página do cliente. URL: {url_atual[:60]}")
+        return False
+    except Exception as e:
+        log_debug(f"Erro ao verificar página: {str(e)[:60]}")
+        return False
 
 def registrar_informacao_automatico(driver):
     log_info("Iniciando registro automático...")
@@ -1627,7 +1580,7 @@ def registrar_informacao_automatico(driver):
             if res and res.get('success'):
                 log_ok(f"Clicado: {query}")
                 return True
-            time.sleep(0.2)
+            time.sleep(0.1)
         log_warn(f"Falha: {query}")
         return False
     
@@ -2492,7 +2445,7 @@ def buscar_novo_cpf(driver):
             current_url = driver.current_url
             base_url = current_url.split('/lightning/')[0] if '/lightning/' in current_url else current_url.split('.com')[0] + '.com'
             driver.get(base_url + '/lightning/page/home')
-            time.sleep(2)
+            time.sleep(0.5)
         except Exception as e:
             log_warn(f"Não conseguiu navegar para início: {str(e)[:60]}")
         
@@ -2581,7 +2534,7 @@ def buscar_novo_cpf(driver):
     
     return cpf_encontrado
 
-# Parte modificada da função main():
+# PARTE MODIFICADA DO MAIN():
 def main():
     print("\n" + "="*40)
     print("   AUTOMAÇÃO SALESFORCE")
@@ -2621,22 +2574,39 @@ def main():
                 print("   INICIANDO REGISTRO DE INFORMAÇÃO")
                 print("="*70 + "\n")
                 
+                # VERIFICAR SE ESTÁ NA PÁGINA DO CLIENTE ANTES DE COMEÇAR
+                if not verificar_se_esta_na_pagina_cliente(driver):
+                    log_warn("\n⚠️ Você não está na página do cliente!")
+                    log_info("Tentando voltar automaticamente...")
+                    
+                    if not voltar_para_cliente(driver, forcar_retorno=True):
+                        log_error("Não conseguiu voltar automaticamente.")
+                        input("\n👉 Por favor, NAVEGUE MANUALMENTE para a aba do cliente e pressione Enter...")
+                        
+                        # Verificar novamente após instrução manual
+                        if not verificar_se_esta_na_pagina_cliente(driver):
+                            log_error("Ainda não está na página do cliente. Pulando esta ação.")
+                            continue
+                    
+                    log_ok("✓ Agora está na página do cliente!")
+                    time.sleep(0.5)
+                
                 if registrar_informacao_automatico(driver):
                     log_ok("\nProcesso concluído com sucesso!")
                 else:
                     log_warn("\nProcesso foi concluído, porém retornou algum erro.")
                 
                 continuar = input("\nDeseja registrar outro caso? (s/n): ").strip().lower()
-                if continuar != 's':
-                    continue
-                else:
-                    # Antes de criar outro caso, voltar para a página do cliente
+                if continuar == 's':
                     log_info("\nPreparando para criar novo caso...")
-                    if not voltar_para_cliente(driver):
-                        log_warn("Não conseguiu voltar automaticamente. Navegue manualmente para a aba do cliente.")
-                        input("Pressione Enter quando estiver na aba do cliente...")
+                    
+                    # FORÇAR retorno para o cliente
+                    if not voltar_para_cliente(driver, forcar_retorno=True):
+                        log_warn("Não conseguiu voltar automaticamente.")
+                        input("\n👉 Navegue manualmente para a aba do cliente e pressione Enter...")
                     else:
-                        log_ok("Pronto para criar novo caso!")
+                        log_ok("✓ Pronto para novo caso!")
+                    
                     time.sleep(0.5)
                     
             elif escolha == "Registrar Conta Bemol":
@@ -2653,22 +2623,37 @@ def main():
                     print("   INICIANDO REGISTRO DE CONTA BEMOL")
                     print("="*70 + "\n")
                     
+                    # VERIFICAR SE ESTÁ NA PÁGINA DO CLIENTE
+                    if not verificar_se_esta_na_pagina_cliente(driver):
+                        log_warn("\n⚠️ Você não está na página do cliente!")
+                        log_info("Tentando voltar automaticamente...")
+                        
+                        if not voltar_para_cliente(driver, forcar_retorno=True):
+                            log_error("Não conseguiu voltar automaticamente.")
+                            input("\n👉 Por favor, NAVEGUE MANUALMENTE para a aba do cliente e pressione Enter...")
+                            
+                            if not verificar_se_esta_na_pagina_cliente(driver):
+                                log_error("Ainda não está na página do cliente. Pulando esta ação.")
+                                continue
+                        
+                        log_ok("✓ Agora está na página do cliente!")
+                        time.sleep(0.5)
+                    
                     if registrar_conta_bemol_automatico(driver):
                         log_ok("\nProcesso de Conta Bemol concluído com sucesso!")
                     else:
                         log_warn("\nProcesso de Conta Bemol foi concluído, porém retornou algum erro.")
                     
                     continuar = input("\nDeseja registrar outra Conta Bemol? (s/n): ").strip().lower()
-                    if continuar != 's':
-                        continue
-                    else:
-                        # Antes de criar outro caso, voltar para a página do cliente
+                    if continuar == 's':
                         log_info("\nPreparando para criar nova Conta Bemol...")
-                        if not voltar_para_cliente(driver):
-                            log_warn("Não conseguiu voltar automaticamente. Navegue manualmente para a aba do cliente.")
-                            input("Pressione Enter quando estiver na aba do cliente...")
+                        
+                        if not voltar_para_cliente(driver, forcar_retorno=True):
+                            log_warn("Não conseguiu voltar automaticamente.")
+                            input("\n👉 Navegue manualmente para a aba do cliente e pressione Enter...")
                         else:
-                            log_ok("Pronto para criar nova Conta Bemol!")
+                            log_ok("✓ Pronto para nova Conta Bemol!")
+                        
                         time.sleep(0.5)
                 else:
                     continue
