@@ -1742,7 +1742,7 @@ def registrar_informacao_automatico(driver):
     return True
 
 def registrar_conta_bemol_automatico(driver):
-    """Nova função para registrar casos de Conta Bemol"""
+    """Nova função para registrar casos de Conta Bemol com fluxo completo de email"""
     log_info("Iniciando registro de Conta Bemol...")
     
     js_click = """
@@ -1876,6 +1876,16 @@ def registrar_conta_bemol_automatico(driver):
         log_warn(f"Falha: {query}")
         return False
     
+    def get_saudacao():
+        """Retorna saudação baseada no horário"""
+        hora = datetime.now().hour
+        if 5 <= hora < 12:
+            return "bom dia"
+        elif 12 <= hora < 18:
+            return "boa tarde"
+        else:
+            return "boa noite"
+    
     print("\n" + "="*70)
     print("   REGISTRO CONTA BEMOL")
     print("="*70 + "\n")
@@ -1918,12 +1928,16 @@ def registrar_conta_bemol_automatico(driver):
     try:
         telefone_conta = input("Digite o TELEFONE do cliente: ").strip()
         email_conta = input("Digite o EMAIL do cliente: ").strip()
+        cpf_cliente = input("Digite o CPF do cliente: ").strip()
+        nome_cliente = input("Digite o NOME do cliente: ").strip()
     except (EOFError, KeyboardInterrupt):
         telefone_conta = ""
         email_conta = ""
+        cpf_cliente = ""
+        nome_cliente = ""
     
-    if not telefone_conta or not email_conta:
-        log_error("Telefone e Email são obrigatórios!")
+    if not telefone_conta or not email_conta or not cpf_cliente or not nome_cliente:
+        log_error("Telefone, Email, CPF e Nome são obrigatórios!")
         return False
     
     # 6. Preencher Assunto (combobox 11)
@@ -1975,30 +1989,24 @@ def registrar_conta_bemol_automatico(driver):
     if res_desc and res_desc.get('success'):
         log_ok("Descrição preenchida")
     
-    # 8. Sistema Operacional (3ª opção)
+    # 8-11. Preencher campos do formulário
     log_info("7. Sistema Operacional (3ª opção)...")
     selecionar_combobox_melhorado(driver, 'Sistema Operacional', 3, 'Sistema Operacional')
     
-    # 9. Origem do caso (2ª opção)
     log_info("8. Origem do caso (2ª opção)...")
     selecionar_combobox_melhorado(driver, 'Origem do caso', 2, 'Origem do caso')
     
-    # 10. Motivo do contato (2ª opção)
     log_info("9. Motivo do contato (2ª opção)...")
     selecionar_combobox_melhorado(driver, 'Motivo do contato', 2, 'Motivo do contato')
     
-    # 11. Categoria (5ª opção)
     log_info("10. Categoria (5ª opção)...")
     selecionar_combobox_melhorado(driver, 'Categoria', 5, 'Categoria')
     
-    # 12. Subcategoria (5ª opção)
     log_info("11. Subcategoria (5ª opção)...")
     selecionar_combobox_melhorado(driver, 'Subcategoria', 5, 'Subcategoria')
     
-    # 13. Verificar em (próximo dia) - CORRIGIDO
+    # 12. Verificar em (próximo dia)
     log_info("12. Preenchendo data 'Verificar em' (próximo dia)...")
-    
-    # Calcular o próximo dia
     tomorrow = datetime.now() + timedelta(days=1)
     data_formatada = tomorrow.strftime("%d/%m/%Y")
     
@@ -2040,323 +2048,281 @@ def registrar_conta_bemol_automatico(driver):
     """
     
     res_date = executar_js_safe(driver, js_fill_date, data_formatada)
-    
     if res_date and res_date.get('success'):
         log_ok(f"Data preenchida: {data_formatada}")
     else:
         log_warn(f"Não conseguiu preencher automaticamente")
-        print(f"Digite a data manualmente no formato DD/MM/YYYY: {data_formatada}")
         input("Pressione Enter após preencher a data...")
-        
-    # 14. Desmarcar checkbox "Enviar email de notificação para contato"
-    log_info("13. Desmarcando notificação por email...")
     
-    js_desmarcar_checkbox_lightning = """
-    function findAndUncheckLightningCheckbox() {
-        // Função para buscar em Shadow DOM recursivamente
-        function findInShadowDOM(root, maxDepth = 10, currentDepth = 0) {
-            if (currentDepth > maxDepth) return null;
-            
-            // Buscar lightning-input com o título correto
-            const lightningInputs = Array.from(root.querySelectorAll('lightning-input'));
-            for (const input of lightningInputs) {
-                const title = input.getAttribute('title') || '';
-                const dataName = input.getAttribute('data-option-name') || '';
-                
-                if (title.includes('Enviar email de notificação') || 
-                    dataName === 'triggerOtherEmail') {
-                    return input;
-                }
-            }
-            
-            // Buscar recursivamente em todos os shadow roots
-            const allElements = root.querySelectorAll('*');
-            for (const el of allElements) {
+    # 13. Desmarcar checkbox de notificação
+    log_info("13. Desmarcando notificação por email...")
+    driver.execute_script("""
+        const allLightningInputs = document.querySelectorAll('lightning-input');
+        for (const input of allLightningInputs) {
+            const title = input.getAttribute('title') || '';
+            if (title.includes('email') || title.includes('notificação')) {
+                input.removeAttribute('checked');
                 try {
-                    if (el.shadowRoot) {
-                        const found = findInShadowDOM(el.shadowRoot, maxDepth, currentDepth + 1);
-                        if (found) return found;
+                    if (input.shadowRoot) {
+                        const primitive = input.shadowRoot.querySelector('lightning-primitive-input-checkbox');
+                        if (primitive && primitive.shadowRoot) {
+                            const realInput = primitive.shadowRoot.querySelector('input[type="checkbox"]');
+                            if (realInput) {
+                                realInput.checked = false;
+                                realInput.dispatchEvent(new Event('change', {bubbles: true}));
+                            }
+                        }
                     }
                 } catch(e) {}
             }
-            
-            return null;
         }
-        
-        // Buscar o componente lightning-input
-        let lightningInput = findInShadowDOM(document);
-        
-        if (!lightningInput) {
-            // Fallback: buscar diretamente por atributos conhecidos
-            const allInputs = document.querySelectorAll('lightning-input');
-            for (const input of allInputs) {
-                const title = input.getAttribute('title') || '';
-                if (title.includes('Enviar email de notificação')) {
-                    lightningInput = input;
-                    break;
-                }
-            }
-        }
-        
-        if (!lightningInput) {
-            return { success: false, error: 'Lightning-input não encontrado' };
-        }
-        
-        // Verificar estado INICIAL
-        const isCheckedBefore = lightningInput.hasAttribute('checked');
-        
-        if (!isCheckedBefore) {
-            return { success: true, action: 'already_unchecked', wasChecked: false };
-        }
-        
-        // Encontrar o input real dentro do shadow DOM
-        let realCheckbox = null;
-        
-        try {
-            // Navegar pelo shadow DOM do lightning-input
-            if (lightningInput.shadowRoot) {
-                const primitiveCheckbox = lightningInput.shadowRoot.querySelector('lightning-primitive-input-checkbox');
-                if (primitiveCheckbox && primitiveCheckbox.shadowRoot) {
-                    realCheckbox = primitiveCheckbox.shadowRoot.querySelector('input[type="checkbox"]');
-                }
-            }
-        } catch(e) {}
-        
-        // Se não achou no shadow, buscar por ID baseado no padrão
-        if (!realCheckbox) {
-            // Tentar encontrar pelo name attribute
-            const name = lightningInput.getAttribute('data-option-name');
-            if (name) {
-                realCheckbox = document.querySelector(`input[name="${name}"]`);
-            }
-        }
-        
-        // Estratégia de desmarcação
-        try {
-            // Rolar até o elemento
-            lightningInput.scrollIntoView({block: 'center', behavior: 'instant'});
-            
-            let w = 0;
-            while(w < 50) {
-                const s = Date.now();
-                while(Date.now() - s < 5) {}
-                w += 5;
-            }
-            
-            // Método 1: Clicar no checkbox real se encontrou
-            if (realCheckbox) {
-                realCheckbox.focus();
-                realCheckbox.click();
-                
-                w = 0;
-                while(w < 100) {
-                    const s = Date.now();
-                    while(Date.now() - s < 5) {}
-                    w += 5;
-                }
-                
-                // Verificar se funcionou IMEDIATAMENTE após clicar
-                const isStillChecked = lightningInput.hasAttribute('checked');
-                if (!isStillChecked) {
-                    return { success: true, action: 'unchecked_via_real_checkbox', wasChecked: true, nowChecked: false };
-                }
-            }
-            
-            // Método 2: Clicar no próprio lightning-input
-            lightningInput.click();
-            
-            w = 0;
-            while(w < 100) {
-                const s = Date.now();
-                while(Date.now() - s < 5) {}
-                w += 5;
-            }
-            
-            // Verificar se funcionou após clicar no lightning-input
-            let isStillChecked = lightningInput.hasAttribute('checked');
-            if (!isStillChecked) {
-                return { success: true, action: 'unchecked_via_lightning_click', wasChecked: true, nowChecked: false };
-            }
-            
-            // Método 3: Remover o atributo checked diretamente E forçar desmarcação
-            lightningInput.removeAttribute('checked');
-            
-            if (realCheckbox) {
-                realCheckbox.checked = false;
-            }
-            
-            // Disparar eventos DEPOIS de desmarcar
-            lightningInput.dispatchEvent(new Event('change', {bubbles: true}));
-            lightningInput.dispatchEvent(new Event('input', {bubbles: true}));
-            
-            if (realCheckbox) {
-                realCheckbox.dispatchEvent(new Event('change', {bubbles: true}));
-            }
-            
-            w = 0;
-            while(w < 150) {
-                const s = Date.now();
-                while(Date.now() - s < 5) {}
-                w += 5;
-            }
-            
-            // Verificação final DEPOIS de aplicar todos os métodos
-            isStillChecked = lightningInput.hasAttribute('checked');
-            
-            return { 
-                success: true, 
-                action: 'forced_uncheck',
-                wasChecked: true,
-                nowChecked: isStillChecked,
-                effectivelyUnchecked: !isStillChecked
-            };
-            
-        } catch(e) {
-            return { success: false, error: String(e) };
-        }
-    }
-    
-    return findAndUncheckLightningCheckbox();
-    """
-    
-    try:
-        resultado = executar_js_safe(driver, js_desmarcar_checkbox_lightning)
-        
-        if resultado:
-            if resultado.get('success'):
-                action = resultado.get('action', 'unknown')
-                
-                if action == 'already_unchecked':
-                    log_ok("✓ Checkbox já estava desmarcada")
-                elif action == 'unchecked_via_real_checkbox':
-                    log_ok("✓ Checkbox desmarcada através do input real!")
-                elif action == 'unchecked_via_lightning_click':
-                    log_ok("✓ Checkbox desmarcada através do lightning-input!")
-                elif action == 'unchecked_via_remove_attribute':
-                    log_ok("✓ Checkbox desmarcada removendo atributo!")
-                    
-                    log_info("Aplicando método super forçado para Lightning...")
-                    driver.execute_script("""
-                        // Buscar TODOS os lightning-input
-                        const allLightningInputs = document.querySelectorAll('lightning-input');
-                        
-                        for (const input of allLightningInputs) {
-                            const title = input.getAttribute('title') || '';
-                            const dataName = input.getAttribute('data-option-name') || '';
-                            
-                            if (title.includes('email') || dataName === 'triggerOtherEmail') {
-                                // Remover atributo checked
-                                input.removeAttribute('checked');
-                                
-                                // Tentar acessar o shadowRoot e desmarcar o input real
-                                try {
-                                    if (input.shadowRoot) {
-                                        const primitive = input.shadowRoot.querySelector('lightning-primitive-input-checkbox');
-                                        if (primitive && primitive.shadowRoot) {
-                                            const realInput = primitive.shadowRoot.querySelector('input[type="checkbox"]');
-                                            if (realInput) {
-                                                realInput.checked = false;
-                                                realInput.dispatchEvent(new Event('change', {bubbles: true}));
-                                            }
-                                        }
-                                    }
-                                } catch(e) {}
-                                
-                                // Disparar eventos no lightning-input
-                                input.dispatchEvent(new Event('change', {bubbles: true}));
-                                input.dispatchEvent(new Event('input', {bubbles: true}));
-                                
-                                break;
-                            }
-                        }
-                    """)
-                    time.sleep(0.3)
-                    log_ok("Método super forçado aplicado")
-            else:
-                erro = resultado.get('error', 'desconhecido')
-                log_warn(f"Erro ao buscar checkbox: {erro}")
-                
-                log_info("Tentando com Selenium direto...")
-                try:
-                    lightning_inputs = driver.find_elements(By.TAG_NAME, 'lightning-input')
-                    
-                    for li in lightning_inputs:
-                        try:
-                            title = li.get_attribute('title')
-                            if title and 'Enviar email de notificação' in title:
-                                log_ok(f"Encontrado via Selenium: {title}")
-                                
-                                # Rolar até elemento
-                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", li)
-                                time.sleep(0.2)
-                                
-                                # Verificar se está marcado
-                                is_checked = li.get_attribute('checked') is not None
-                                
-                                if is_checked:
-                                    # Tentar clicar
-                                    try:
-                                        li.click()
-                                        time.sleep(0.2)
-                                        log_ok("Clicado via Selenium")
-                                    except:
-                                        # Clicar via JavaScript
-                                        driver.execute_script("arguments[0].click();", li)
-                                        time.sleep(0.2)
-                                        log_ok("Clicado via JavaScript")
-                                    
-                                    # Forçar remoção do atributo
-                                    driver.execute_script("arguments[0].removeAttribute('checked');", li)
-                                    log_ok("Atributo removido via JavaScript")
-                                else:
-                                    log_ok("Já estava desmarcado")
-                                
-                                break
-                        except:
-                            continue
-                    else:
-                        log_warn("Não encontrou lightning-input com Selenium")
-                        
-                except Exception as e_sel:
-                    log_error(f"Erro com Selenium: {str(e_sel)[:100]}")
-        else:
-            log_warn("JavaScript não retornou resposta")
-    
-    except Exception as e:
-        log_error(f"Erro ao processar checkbox: {str(e)[:100]}")
-        
-    # Verificação final robusta
-    log_info("Verificando estado final...")
+    """)
     
     print("\n" + "="*70)
     log_ok("FORMULÁRIO COMPLETO!")
-    print("="*70)
-    print(f"\nTelefone: {telefone_conta}")
-    print(f"Email: {email_conta}")
-    print(f"Assunto: 11ª opção")
-    print(f"Sistema Operacional: 3ª opção")
-    print(f"Origem: 2ª opção")
-    print(f"Motivo: 2ª opção")
-    print(f"Categoria: 5ª opção")
-    print(f"Subcategoria: 5ª opção")
-    print(f"Data Verificar em: {data_formatada}")
     print("="*70 + "\n")
     
-    salvar = input("SALVAR CASO? (s/n): ").strip().lower()
-    
-    if salvar == 's' or salvar == '':
-        log_info("Salvando...")
-        
-        if click_element('button[name="SaveEdit"]'):
-            log_ok("CASO SALVO COM SUCESSO!")
-            time.sleep(0.8)
-        elif click_element('Salvar', 'text'):
-            log_ok("CASO SALVO COM SUCESSO!")
-            time.sleep(0.8)
-        else:
-            log_warn("Salve manualmente se necessário")
+    # Salvar caso
+    log_info("Salvando caso...")
+    if click_element('button[name="SaveEdit"]') or click_element('Salvar', 'text'):
+        log_ok("CASO SALVO COM SUCESSO!")
+        time.sleep(1.5)
     else:
-        log_info("Revise e salve manualmente")
+        log_error("Erro ao salvar")
+        return False
+    
+    # ========== NOVO FLUXO DE EMAIL ==========
+    print("\n" + "="*70)
+    print("   FLUXO DE EMAIL")
+    print("="*70 + "\n")
+    
+    # 1. Clicar na aba Feed
+    log_info("1. Abrindo aba Feed...")
+    js_click_feed = """
+    const feedTab = document.querySelector('a[data-tab-value="feedTab"]');
+    if (feedTab) {
+        feedTab.scrollIntoView({block: 'center'});
+        feedTab.click();
+        return {success: true};
+    }
+    return {success: false};
+    """
+    if executar_js_safe(driver, js_click_feed):
+        log_ok("Feed aberto")
+        time.sleep(1)
+    else:
+        click_element('Feed', 'text')
+        time.sleep(1)
+    
+    # 2. Clicar em Email
+    log_info("2. Clicando em Email...")
+    js_click_email = """
+    const spans = Array.from(document.querySelectorAll('span.title'));
+    for (const span of spans) {
+        if (span.textContent.trim() === 'Email') {
+            span.scrollIntoView({block: 'center'});
+            span.click();
+            return {success: true};
+        }
+    }
+    return {success: false};
+    """
+    if executar_js_safe(driver, js_click_email):
+        log_ok("Email clicado")
+        time.sleep(1)
+    else:
+        click_element('Email', 'text')
+        time.sleep(1)
+    
+    # 3. Clicar no combobox e selecionar 5ª opção
+    log_info("3. Selecionando 5ª opção no combobox...")
+    js_select_5th = """
+    const combobox = document.querySelector('a.select[role="combobox"]');
+    if (combobox) {
+        combobox.click();
+        setTimeout(() => {
+            const options = document.querySelectorAll('ul[role="presentation"] li a');
+            if (options && options.length >= 5) {
+                options[4].click();
+            }
+        }, 300);
+        return {success: true};
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_select_5th)
+    time.sleep(0.8)
+    
+    # 4. Preencher email do destinatário
+    log_info("4. Preenchendo email do destinatário...")
+    js_fill_recipient = f"""
+    const input = document.querySelector('input[role="combobox"][aria-autocomplete="list"]');
+    if (input) {{
+        input.focus();
+        input.value = '{email_conta}';
+        input.dispatchEvent(new Event('input', {{bubbles: true}}));
+        input.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}));
+        return {{success: true}};
+    }}
+    return {{success: false}};
+    """
+    executar_js_safe(driver, js_fill_recipient)
+    time.sleep(0.5)
+    
+    # 5. Preencher assunto
+    log_info("5. Preenchendo assunto...")
+    assunto = f"Retorno de atendimento - {cpf_cliente} - {nome_cliente}"
+    js_fill_subject = f"""
+    const input = document.querySelector('input[placeholder*="Insira o assunto"]');
+    if (input) {{
+        input.focus();
+        input.value = '{assunto}';
+        input.dispatchEvent(new Event('input', {{bubbles: true}}));
+        input.dispatchEvent(new Event('change', {{bubbles: true}}));
+        return {{success: true}};
+    }}
+    return {{success: false}};
+    """
+    executar_js_safe(driver, js_fill_subject)
+    time.sleep(0.3)
+    
+    # 6. Preencher corpo do email
+    log_info("6. Preenchendo corpo do email...")
+    saudacao = get_saudacao()
+    corpo_email = f"""Olá, {nome_cliente}, {saudacao}!
+ 
+Esperamos que esteja bem, ficamos felizes com o seu contato, é um prazer receber você aqui na Conta Bemol.
+ 
+Por gentileza, por motivos de segurança e validação de dados, para alteração do número de contato, favor encaminhar:
+ 
+- Número de Contato ATUAL:
+ 
+Após recebermos os dados acima, seguiremos com a análise do seu caso e retornaremos o mais breve possível.
+ 
+Conta Bemol - A sua confiança vale muito!
+ 
+Atenciosamente,"""
+    
+    js_fill_body = """
+    const body = document.querySelector('body[role="textbox"][contenteditable="true"]');
+    if (body) {
+        body.focus();
+        body.innerHTML = arguments[0].replace(/\\n/g, '<br>');
+        body.dispatchEvent(new Event('input', {bubbles: true}));
+        return {success: true};
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_fill_body, corpo_email)
+    time.sleep(0.5)
+    
+    # 7. Clicar em Enviar
+    log_info("7. Enviando email...")
+    js_click_send = """
+    const spans = Array.from(document.querySelectorAll('span.label.bBody'));
+    for (const span of spans) {
+        if (span.textContent.trim() === 'Enviar') {
+            span.click();
+            return {success: true};
+        }
+    }
+    return {success: false};
+    """
+    if executar_js_safe(driver, js_click_send):
+        log_ok("Email enviado!")
+        time.sleep(2)
+    else:
+        click_element('Enviar', 'text')
+        time.sleep(2)
+    
+    # 8. Clicar em "Pendente cliente"
+    log_info("8. Clicando em 'Pendente cliente'...")
+    js_click_pendente = """
+    const link = document.querySelector('a[data-tab-name="Pendente cliente"]');
+    if (link) {
+        link.click();
+        return {success: true};
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_click_pendente)
+    time.sleep(0.8)
+    
+    # 9. Marcar status como concluído
+    log_info("9. Marcando status como concluído...")
+    js_click_concluido = """
+    const spans = Array.from(document.querySelectorAll('span.uiOutputText'));
+    for (const span of spans) {
+        if (span.textContent.includes('Marcar Status do caso como concluído')) {
+            span.click();
+            return {success: true};
+        }
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_click_concluido)
+    time.sleep(1)
+    
+    # 10. Preencher campo de busca com "CAB"
+    log_info("10. Buscando fila CAB...")
+    js_search_cab = """
+    const input = document.querySelector('input[placeholder*="Pesquisar Filas"]');
+    if (input) {
+        input.focus();
+        input.value = 'CAB';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        return {success: true};
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_search_cab)
+    time.sleep(1.5)
+    
+    # 11. Selecionar segunda opção
+    log_info("11. Selecionando segunda opção...")
+    js_select_second = """
+    const options = document.querySelectorAll('[role="option"]');
+    if (options && options.length >= 2) {
+        options[1].click();
+        return {success: true};
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_select_second)
+    time.sleep(0.5)
+    
+    # 12. Clicar em "Transferir Fila"
+    log_info("12. Clicando em 'Transferir Fila'...")
+    js_click_transferir_fila = """
+    const buttons = Array.from(document.querySelectorAll('button.slds-button_brand'));
+    for (const btn of buttons) {
+        if (btn.textContent.includes('Transferir Fila')) {
+            btn.click();
+            return {success: true};
+        }
+    }
+    return {success: false};
+    """
+    executar_js_safe(driver, js_click_transferir_fila)
+    time.sleep(0.8)
+    
+    # 13. Confirmar transferência
+    log_info("13. Confirmando transferência...")
+    js_click_transferir_final = """
+    const buttons = Array.from(document.querySelectorAll('button[title="Transferir"]'));
+    for (const btn of buttons) {
+        btn.click();
+        return {success: true};
+    }
+    return {success: false};
+    """
+    if executar_js_safe(driver, js_click_transferir_final):
+        log_ok("Transferência confirmada!")
+        time.sleep(1)
+    
+    print("\n" + "="*70)
+    log_ok("FLUXO COMPLETO FINALIZADO COM SUCESSO!")
+    print("="*70 + "\n")
     
     return True
 
